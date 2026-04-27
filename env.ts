@@ -7,6 +7,7 @@ export type TrpcContext = {
   res: CreateExpressContextOptions["res"];
   user: User | null;
 };
+export const ENV = env;
 
 export async function createContext(
   opts: CreateExpressContextOptions
