@@ -1,171 +1,180 @@
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Droplets, Trash2, Plus } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { useSelectedChild } from "@/hooks/useSelectedChild";
-import { SubscriptionGate } from "@/components/SubscriptionGate";
 import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Pill, Thermometer, Droplets, Activity, AlertTriangle, Baby, Bell } from "lucide-react";
+import { useSelectedChild } from "@/hooks/useSelectedChild";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
-function formatDateTime(ms: number) {
-  return new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+function formatTime(ms: number) {
+  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
-function toLocalDatetimeValue(ms: number) {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function formatDate(ms: number) {
+  return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-const FLUID_TYPES = ["Breastmilk", "Formula", "Water", "Electrolyte drink", "Popsicle", "Juice", "Other"];
-const OUTPUT_TYPES = [
-  { value: "wet_diaper", label: "Wet diaper" },
-  { value: "urinated", label: "Urinated" },
-  { value: "vomited", label: "Vomited" },
-  { value: "diarrhea", label: "Diarrhea" },
-] as const;
+export default function Dashboard() {
+  const { selectedChildId, setSelectedChildId } = useSelectedChild();
+  const childrenQ = trpc.childProfiles.list.useQuery();
+  const children = childrenQ.data ?? [];
 
-export default function FluidsOutput() {
-  const utils = trpc.useUtils();
-  const { selectedChildId } = useSelectedChild();
+  useEffect(() => {
+    if (children.length > 0 && !selectedChildId) {
+      setSelectedChildId(children[0].id);
+    }
+  }, [children]);
+
+  const child = children.find((c) => c.id === selectedChildId);
   const childId = selectedChildId ?? 0;
 
-  const fluidsQ = trpc.fluidLogs.list.useQuery({ childProfileId: childId }, { enabled: !!selectedChildId });
-  const outputQ = trpc.outputLogs.list.useQuery({ childProfileId: childId }, { enabled: !!selectedChildId });
+  const medsQ = trpc.medicationLogs.list.useQuery({ childProfileId: childId, limit: 5 }, { enabled: !!selectedChildId });
+  const tempsQ = trpc.temperatureLogs.list.useQuery({ childProfileId: childId, limit: 5 }, { enabled: !!selectedChildId });
+  const fluidsQ = trpc.fluidLogs.list.useQuery({ childProfileId: childId, limit: 20 }, { enabled: !!selectedChildId });
+  const outputQ = trpc.outputLogs.list.useQuery({ childProfileId: childId, limit: 20 }, { enabled: !!selectedChildId });
+  const remindersQ = trpc.reminders.list.useQuery({ childProfileId: childId }, { enabled: !!selectedChildId });
 
-  const [fluidType, setFluidType] = useState("Water");
-  const [fluidAmount, setFluidAmount] = useState("");
-  const [fluidTime, setFluidTime] = useState(() => toLocalDatetimeValue(Date.now()));
-  const [fluidNote, setFluidNote] = useState("");
-  const [showFluidForm, setShowFluidForm] = useState(false);
+  const markAllRead = trpc.reminders.markAllRead.useMutation({ onSuccess: () => remindersQ.refetch() });
 
-  const [outputType, setOutputType] = useState<"wet_diaper" | "urinated" | "vomited" | "diarrhea">("wet_diaper");
-  const [outputTime, setOutputTime] = useState(() => toLocalDatetimeValue(Date.now()));
-  const [outputNote, setOutputNote] = useState("");
-  const [showOutputForm, setShowOutputForm] = useState(false);
+  const lastMed = medsQ.data?.[0];
+  const lastTemp = tempsQ.data?.[0];
+  const unreadReminders = (remindersQ.data ?? []).filter((r) => !r.isRead);
 
-  const createFluid = trpc.fluidLogs.create.useMutation({
-    onSuccess: () => { utils.fluidLogs.list.invalidate(); setShowFluidForm(false); setFluidAmount(""); setFluidNote(""); toast.success("Fluid intake logged"); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteFluid = trpc.fluidLogs.delete.useMutation({ onSuccess: () => utils.fluidLogs.list.invalidate() });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayMs = today.getTime();
 
-  const createOutput = trpc.outputLogs.create.useMutation({
-    onSuccess: () => { utils.outputLogs.list.invalidate(); setShowOutputForm(false); setOutputNote(""); toast.success("Output event logged"); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteOutput = trpc.outputLogs.delete.useMutation({ onSuccess: () => utils.outputLogs.list.invalidate() });
+  const todayFluids = (fluidsQ.data ?? []).filter((f) => f.loggedAt >= todayMs).length;
+  const todayOutput = (outputQ.data ?? []).filter((o) => o.loggedAt >= todayMs).length;
+  const todayMeds = (medsQ.data ?? []).filter((m) => m.timeGiven >= todayMs).length;
 
-  if (!selectedChildId) {
+  if (children.length === 0) {
     return (
-      <div className="p-6 text-center py-20">
-        <p className="text-muted-foreground mb-4">Please select or create a child profile first.</p>
-        <Button asChild className="bg-primary text-primary-foreground"><Link href="/children">Manage Children</Link></Button>
+      <div className="p-6 max-w-lg mx-auto text-center py-20">
+        <div className="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center mx-auto mb-4">
+          <Baby className="w-8 h-8 text-primary" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground mb-2">Add a child profile to get started</h2>
+        <p className="text-muted-foreground mb-6">Create a profile for your child to begin tracking.</p>
+        <Button asChild className="bg-primary text-primary-foreground">
+          <Link href="/children">Add Child Profile</Link>
+        </Button>
       </div>
     );
   }
 
   return (
-    <SubscriptionGate feature="the Fluids & Output tracker">
-    <div className="p-4 md:p-6 max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold text-foreground mb-6">Fluids & Output</h1>
+    <div className="p-4 md:p-6 max-w-2xl mx-auto">
+      {/* Child selector */}
+      {children.length > 1 && (
+        <div className="flex gap-2 mb-6 flex-wrap">
+          {children.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedChildId(c.id)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${c.id === selectedChildId ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
+            >
+              {c.childName}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <Tabs defaultValue="fluids">
-        <TabsList className="w-full mb-6 bg-secondary">
-          <TabsTrigger value="fluids" className="flex-1 data-[state=active]:bg-card data-[state=active]:text-foreground">Fluid Intake</TabsTrigger>
-          <TabsTrigger value="output" className="flex-1 data-[state=active]:bg-card data-[state=active]:text-foreground">Output</TabsTrigger>
-        </TabsList>
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-foreground">{child?.childName ?? "Dashboard"}</h1>
+        {child?.ageBand && <p className="text-sm text-muted-foreground">{child.ageBand}</p>}
+      </div>
 
-        <TabsContent value="fluids">
-          <div className="flex justify-end mb-4">
-            <Button size="sm" onClick={() => setShowFluidForm(!showFluidForm)} className="bg-primary text-primary-foreground">
-              <Plus className="w-4 h-4 mr-1" /> Log fluid
-            </Button>
-          </div>
-          {showFluidForm && (
-            <div className="p-5 rounded-xl bg-card border border-border mb-4 space-y-4">
-              <div><Label className="text-foreground mb-1.5 block">Fluid type *</Label>
-                <Select value={fluidType} onValueChange={setFluidType}>
-                  <SelectTrigger className="bg-input border-border text-foreground"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-card border-border">{FLUID_TYPES.map((f) => <SelectItem key={f} value={f} className="text-foreground">{f}</SelectItem>)}</SelectContent>
-                </Select></div>
-              <div><Label className="text-foreground mb-1.5 block">Amount (optional)</Label>
-                <Input value={fluidAmount} onChange={(e) => setFluidAmount(e.target.value)} placeholder="e.g. 4 oz" className="bg-input border-border text-foreground" /></div>
-              <div><Label className="text-foreground mb-1.5 block">Time</Label>
-                <Input type="datetime-local" value={fluidTime} onChange={(e) => setFluidTime(e.target.value)} className="bg-input border-border text-foreground" /></div>
-              <div><Label className="text-foreground mb-1.5 block">Note (optional)</Label>
-                <Textarea value={fluidNote} onChange={(e) => setFluidNote(e.target.value)} className="bg-input border-border text-foreground resize-none" rows={2} /></div>
-              <div className="flex gap-2">
-                <Button onClick={() => createFluid.mutate({ childProfileId: childId, fluidType, amountText: fluidAmount || undefined, loggedAt: new Date(fluidTime).getTime(), note: fluidNote || undefined })} disabled={createFluid.isPending} className="flex-1 bg-primary text-primary-foreground">Save</Button>
-                <Button variant="outline" onClick={() => setShowFluidForm(false)} className="border-border text-foreground">Cancel</Button>
-              </div>
+      {/* Reminders */}
+      {unreadReminders.length > 0 && (
+        <div className="mb-4 p-4 rounded-xl bg-primary/8 border border-primary/20">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 text-primary font-medium text-sm">
+              <Bell className="w-4 h-4" />
+              {unreadReminders.length} reminder{unreadReminders.length > 1 ? "s" : ""}
             </div>
-          )}
+            <button onClick={() => markAllRead.mutate({ childProfileId: childId })} className="text-xs text-muted-foreground hover:text-foreground">
+              Mark all read
+            </button>
+          </div>
+          <p className="text-sm text-foreground">{unreadReminders[0].message}</p>
+        </div>
+      )}
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground mb-1">Last temperature</p>
+          {lastTemp ? (
+            <>
+              <p className="text-2xl font-bold text-foreground">{lastTemp.temperatureValue}°{lastTemp.temperatureUnit}</p>
+              <p className="text-xs text-muted-foreground mt-1">{formatTime(lastTemp.loggedAt)} · {formatDate(lastTemp.loggedAt)}</p>
+            </>
+          ) : <p className="text-muted-foreground text-sm">None logged</p>}
+        </div>
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground mb-1">Last medication</p>
+          {lastMed ? (
+            <>
+              <p className="text-lg font-bold text-foreground capitalize">{lastMed.medicationType}</p>
+              <p className="text-xs text-muted-foreground mt-1">{formatTime(lastMed.timeGiven)} · {formatDate(lastMed.timeGiven)}</p>
+            </>
+          ) : <p className="text-muted-foreground text-sm">None logged</p>}
+        </div>
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground mb-1">Today's fluids</p>
+          <p className="text-2xl font-bold text-foreground">{todayFluids}</p>
+          <p className="text-xs text-muted-foreground mt-1">entries logged</p>
+        </div>
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground mb-1">Today's output</p>
+          <p className="text-2xl font-bold text-foreground">{todayOutput}</p>
+          <p className="text-xs text-muted-foreground mt-1">events logged</p>
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="mb-6">
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Quick actions</h2>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { href: "/medications", icon: Pill, label: "Log Tylenol", color: "text-blue-400" },
+            { href: "/medications", icon: Pill, label: "Log Advil", color: "text-orange-400" },
+            { href: "/temperature", icon: Thermometer, label: "Add temperature", color: "text-red-400" },
+            { href: "/fluids", icon: Droplets, label: "Add fluids", color: "text-cyan-400" },
+            { href: "/fluids", icon: Droplets, label: "Log output", color: "text-purple-400" },
+            { href: "/red-flags", icon: AlertTriangle, label: "Red flags", color: "text-amber-400" },
+          ].map(({ href, icon: Icon, label, color }) => (
+            <Link key={label} href={href} className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border hover:border-primary/30 transition-colors">
+              <Icon className={`w-5 h-5 ${color} flex-shrink-0`} />
+              <span className="text-sm font-medium text-foreground">{label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Today's meds */}
+      {todayMeds > 0 && (
+        <div className="mb-4">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">Today's medications ({todayMeds})</h2>
           <div className="space-y-2">
-            {(fluidsQ.data ?? []).length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">No fluid intake logged yet.</div>
-            ) : (fluidsQ.data ?? []).map((log) => (
-              <div key={log.id} className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border">
-                <Droplets className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-foreground text-sm">{log.fluidType}{log.amountText ? ` · ${log.amountText}` : ""}</p>
-                  <p className="text-xs text-muted-foreground">{formatDateTime(log.loggedAt)}</p>
-                  {log.note && <p className="text-xs text-muted-foreground">{log.note}</p>}
+            {(medsQ.data ?? []).filter((m) => m.timeGiven >= todayMs).slice(0, 5).map((m) => (
+              <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-card border border-border">
+                <div className="flex items-center gap-2">
+                  <Pill className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground capitalize">{m.medicationType}</span>
+                  {m.amountText && <span className="text-xs text-muted-foreground">· {m.amountText}</span>}
                 </div>
-                <button onClick={() => deleteFluid.mutate({ id: log.id })} className="p-1.5 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                <span className="text-xs text-muted-foreground">{formatTime(m.timeGiven)}</span>
               </div>
             ))}
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="output">
-          <div className="flex justify-end mb-4">
-            <Button size="sm" onClick={() => setShowOutputForm(!showOutputForm)} className="bg-primary text-primary-foreground">
-              <Plus className="w-4 h-4 mr-1" /> Log output
-            </Button>
-          </div>
-          {showOutputForm && (
-            <div className="p-5 rounded-xl bg-card border border-border mb-4 space-y-4">
-              <div><Label className="text-foreground mb-1.5 block">Output type *</Label>
-                <Select value={outputType} onValueChange={(v) => setOutputType(v as typeof outputType)}>
-                  <SelectTrigger className="bg-input border-border text-foreground"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-card border-border">{OUTPUT_TYPES.map((o) => <SelectItem key={o.value} value={o.value} className="text-foreground">{o.label}</SelectItem>)}</SelectContent>
-                </Select></div>
-              <div><Label className="text-foreground mb-1.5 block">Time</Label>
-                <Input type="datetime-local" value={outputTime} onChange={(e) => setOutputTime(e.target.value)} className="bg-input border-border text-foreground" /></div>
-              <div><Label className="text-foreground mb-1.5 block">Note (optional)</Label>
-                <Textarea value={outputNote} onChange={(e) => setOutputNote(e.target.value)} className="bg-input border-border text-foreground resize-none" rows={2} /></div>
-              <div className="flex gap-2">
-                <Button onClick={() => createOutput.mutate({ childProfileId: childId, outputType, loggedAt: new Date(outputTime).getTime(), note: outputNote || undefined })} disabled={createOutput.isPending} className="flex-1 bg-primary text-primary-foreground">Save</Button>
-                <Button variant="outline" onClick={() => setShowOutputForm(false)} className="border-border text-foreground">Cancel</Button>
-              </div>
-            </div>
-          )}
-          <div className="space-y-2">
-            {(outputQ.data ?? []).length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">No output events logged yet.</div>
-            ) : (outputQ.data ?? []).map((log) => {
-              const label = OUTPUT_TYPES.find((o) => o.value === log.outputType)?.label ?? log.outputType;
-              return (
-                <div key={log.id} className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border">
-                  <Droplets className="w-4 h-4 text-purple-400 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground text-sm">{label}</p>
-                    <p className="text-xs text-muted-foreground">{formatDateTime(log.loggedAt)}</p>
-                    {log.note && <p className="text-xs text-muted-foreground">{log.note}</p>}
-                  </div>
-                  <button onClick={() => deleteOutput.mutate({ id: log.id })} className="p-1.5 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
-              );
-            })}
-          </div>
-        </TabsContent>
-      </Tabs>
+      <div className="disclaimer-box mt-6">
+        This tool is for tracking and education only. It does not provide medical advice. Always follow medication labels and seek care from a healthcare professional when needed.
+      </div>
     </div>
-    </SubscriptionGate>
   );
 }

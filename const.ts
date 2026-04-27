@@ -1,55 +1,129 @@
-// EDITABLE CONTENT: Update the FAQS array below to revise FAQ content without changing component code.
-import { HelpCircle } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Plus, Pencil, Trash2, Baby } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
+import { useSelectedChild } from "@/hooks/useSelectedChild";
 
-const FAQS = [
-  { q: "Does FeverPlan tell me what dose to give my child?", a: "No. FeverPlan never calculates, recommends, or suggests medication doses. It only records what you enter. Always follow your medication label and confirm the correct dose with your pharmacist or clinician." },
-  { q: "Is FeverPlan a telehealth or medical advice service?", a: "No. FeverPlan is a tracking and education tool only. It does not provide medical advice, diagnosis, or treatment. Always seek care from a qualified healthcare professional when needed." },
-  { q: "What does the medication timeline show?", a: "The timeline shows the entries you have logged — medication type, time, and any amount or notes you entered. This is for your tracking reference only and does not represent a dosing schedule or recommendation." },
-  { q: "Can I use FeverPlan for multiple children?", a: "Yes. Paid plans support multiple child profiles so you can track each child separately." },
-  { q: "What happens when my access pass expires?", a: "Your data is retained. You can purchase a new pass at any time to regain full access to all features." },
-  { q: "What does the Red Flags page show?", a: "The Red Flags page provides high-level educational information about symptoms commonly evaluated urgently. It is written in general terms and is not personalized medical advice. If you are concerned about your child, seek care from a healthcare professional." },
-  { q: "Is my data private?", a: "Yes. Your tracking data is private to your account and is never shared or sold." },
-  { q: "Can I use FeverPlan at night on my phone?", a: "Yes — FeverPlan is designed specifically for nighttime, one-handed use on a phone. The dark interface and large buttons are intentional." },
-  { q: "What if I logged the wrong information?", a: "You can delete individual log entries from any tracker screen. Tap the trash icon next to an entry to remove it." },
-  { q: "Does FeverPlan replace my doctor?", a: "No. FeverPlan is a support tool for tracking and education only. It does not replace professional medical care. Always consult your healthcare provider with specific questions about your child's health." },
-];
+const AGE_BANDS = ["0–3 months", "3–6 months", "6–12 months", "1–2 years", "2–5 years", "5–12 years", "12+ years"];
 
-export default function FAQ() {
-  const [open, setOpen] = useState<number | null>(null);
+export default function ChildProfiles() {
+  const utils = trpc.useUtils();
+  const { selectedChildId, setSelectedChildId } = useSelectedChild();
+  const childrenQ = trpc.childProfiles.list.useQuery();
+  const children = childrenQ.data ?? [];
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [ageBand, setAgeBand] = useState("");
+  const [weight, setWeight] = useState("");
+
+  const createMut = trpc.childProfiles.create.useMutation({
+    onSuccess: () => { utils.childProfiles.list.invalidate(); setAddOpen(false); setName(""); setAgeBand(""); setWeight(""); toast.success("Child profile added"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateMut = trpc.childProfiles.update.useMutation({
+    onSuccess: () => { utils.childProfiles.list.invalidate(); setEditId(null); toast.success("Profile updated"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteMut = trpc.childProfiles.delete.useMutation({
+    onSuccess: (_, vars) => {
+      utils.childProfiles.list.invalidate();
+      if (selectedChildId === vars.id) setSelectedChildId(null);
+      toast.success("Profile removed");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const openEdit = (c: typeof children[0]) => {
+    setEditId(c.id); setName(c.childName); setAgeBand(c.ageBand ?? ""); setWeight(c.weightReference ?? "");
+  };
 
   return (
-    <div className="p-4 md:p-6 max-w-2xl mx-auto">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center">
-          <HelpCircle className="w-4 h-4 text-primary" />
+    <div className="p-4 md:p-6 max-w-lg mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-foreground">Children</h1>
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="bg-primary text-primary-foreground">
+              <Plus className="w-4 h-4 mr-1" /> Add child
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="bg-card border-border text-foreground">
+            <DialogHeader><DialogTitle>Add child profile</DialogTitle></DialogHeader>
+            <div className="space-y-4 mt-2">
+              <div><Label className="text-foreground mb-1.5 block">Name or nickname *</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Emma" className="bg-input border-border text-foreground" /></div>
+              <div><Label className="text-foreground mb-1.5 block">Age range</Label>
+                <Select value={ageBand} onValueChange={setAgeBand}>
+                  <SelectTrigger className="bg-input border-border text-foreground"><SelectValue placeholder="Select age range" /></SelectTrigger>
+                  <SelectContent className="bg-card border-border">{AGE_BANDS.map((a) => <SelectItem key={a} value={a} className="text-foreground">{a}</SelectItem>)}</SelectContent>
+                </Select></div>
+              <div><Label className="text-foreground mb-1.5 block">Weight (optional, for your reference only)</Label>
+                <Input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="e.g. 22 lbs" className="bg-input border-border text-foreground" /></div>
+              <p className="text-xs text-muted-foreground">Weight is stored for your personal reference only. FeverPlan does not use it for any calculations.</p>
+              <Button disabled={!name.trim()} onClick={() => createMut.mutate({ childName: name.trim(), ageBand: ageBand || undefined, weightReference: weight || undefined })} className="w-full bg-primary text-primary-foreground">
+                {createMut.isPending ? "Adding..." : "Add profile"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {children.length === 0 ? (
+        <div className="text-center py-16">
+          <Baby className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground">No child profiles yet. Add one to get started.</p>
         </div>
-        <h1 className="text-2xl font-bold text-foreground">Frequently Asked Questions</h1>
-      </div>
-      <p className="text-muted-foreground mb-8">Common questions about FeverPlan.</p>
-
-      <div className="space-y-2">
-        {FAQS.map(({ q, a }, i) => (
-          <div key={i} className="rounded-xl bg-card border border-border overflow-hidden">
-            <button
-              onClick={() => setOpen(open === i ? null : i)}
-              className="w-full flex items-center justify-between p-4 text-left hover:bg-secondary/30 transition-colors"
-            >
-              <span className="font-medium text-foreground text-sm pr-4">{q}</span>
-              <span className={`text-muted-foreground flex-shrink-0 transition-transform ${open === i ? "rotate-180" : ""}`}>▾</span>
-            </button>
-            {open === i && (
-              <div className="px-4 pb-4">
-                <p className="text-sm text-muted-foreground leading-relaxed">{a}</p>
+      ) : (
+        <div className="space-y-3">
+          {children.map((c) => (
+            <div key={c.id} className={`p-4 rounded-xl border ${c.id === selectedChildId ? "border-primary bg-primary/8" : "border-border bg-card"}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-foreground">{c.childName}</p>
+                  {c.ageBand && <p className="text-xs text-muted-foreground mt-0.5">{c.ageBand}</p>}
+                  {c.weightReference && <p className="text-xs text-muted-foreground">Weight ref: {c.weightReference}</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {c.id !== selectedChildId && (
+                    <Button size="sm" variant="outline" className="text-xs border-border" onClick={() => setSelectedChildId(c.id)}>Select</Button>
+                  )}
+                  {c.id === selectedChildId && <span className="text-xs text-primary font-medium">Active</span>}
+                  <button onClick={() => openEdit(c)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => { if (confirm("Remove this profile?")) deleteMut.mutate({ id: c.id }); }} className="p-1.5 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-      <div className="disclaimer-box mt-8">
-        FeverPlan is for educational and tracking purposes only. It does not provide medical advice, diagnosis, or treatment.
-      </div>
+      {/* Edit dialog */}
+      <Dialog open={editId !== null} onOpenChange={(o) => !o && setEditId(null)}>
+        <DialogContent className="bg-card border-border text-foreground">
+          <DialogHeader><DialogTitle>Edit profile</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div><Label className="text-foreground mb-1.5 block">Name *</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-input border-border text-foreground" /></div>
+            <div><Label className="text-foreground mb-1.5 block">Age range</Label>
+              <Select value={ageBand} onValueChange={setAgeBand}>
+                <SelectTrigger className="bg-input border-border text-foreground"><SelectValue placeholder="Select age range" /></SelectTrigger>
+                <SelectContent className="bg-card border-border">{AGE_BANDS.map((a) => <SelectItem key={a} value={a} className="text-foreground">{a}</SelectItem>)}</SelectContent>
+              </Select></div>
+            <div><Label className="text-foreground mb-1.5 block">Weight reference</Label>
+              <Input value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="e.g. 22 lbs" className="bg-input border-border text-foreground" /></div>
+            <Button disabled={!name.trim()} onClick={() => editId && updateMut.mutate({ id: editId, childName: name.trim(), ageBand: ageBand || undefined, weightReference: weight || undefined })} className="w-full bg-primary text-primary-foreground">
+              {updateMut.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

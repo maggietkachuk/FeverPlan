@@ -1,59 +1,67 @@
-import * as React from "react";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-
+import { useDialogComposition } from "@/components/ui/dialog";
+import { useComposition } from "@/hooks/useComposition";
 import { cn } from "@/lib/utils";
+import * as React from "react";
 
-function TooltipProvider({
-  delayDuration = 0,
+function Textarea({
+  className,
+  onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+}: React.ComponentProps<"textarea">) {
+  // Get dialog composition context if available (will be no-op if not inside Dialog)
+  const dialogComposition = useDialogComposition();
+
+  // Add composition event handlers to support input method editor (IME) for CJK languages.
+  const {
+    onCompositionStart: handleCompositionStart,
+    onCompositionEnd: handleCompositionEnd,
+    onKeyDown: handleKeyDown,
+  } = useComposition<HTMLTextAreaElement>({
+    onKeyDown: (e) => {
+      // Check if this is an Enter key that should be blocked
+      const isComposing = (e.nativeEvent as any).isComposing || dialogComposition.justEndedComposing();
+
+      // If Enter key is pressed while composing or just after composition ended,
+      // don't call the user's onKeyDown (this blocks the business logic)
+      // Note: For textarea, Shift+Enter should still work for newlines
+      if (e.key === "Enter" && !e.shiftKey && isComposing) {
+        return;
+      }
+
+      // Otherwise, call the user's onKeyDown
+      onKeyDown?.(e);
+    },
+    onCompositionStart: e => {
+      dialogComposition.setComposing(true);
+      onCompositionStart?.(e);
+    },
+    onCompositionEnd: e => {
+      // Mark that composition just ended - this helps handle the Enter key that confirms input
+      dialogComposition.markCompositionEnd();
+      // Delay setting composing to false to handle Safari's event order
+      // In Safari, compositionEnd fires before the ESC keydown event
+      setTimeout(() => {
+        dialogComposition.setComposing(false);
+      }, 100);
+      onCompositionEnd?.(e);
+    },
+  });
+
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
+    <textarea
+      data-slot="textarea"
+      className={cn(
+        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        className
+      )}
+      onCompositionStart={handleCompositionStart}
+      onCompositionEnd={handleCompositionEnd}
+      onKeyDown={handleKeyDown}
       {...props}
     />
   );
 }
 
-function Tooltip({
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return (
-    <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-    </TooltipProvider>
-  );
-}
-
-function TooltipTrigger({
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
-}
-
-function TooltipContent({
-  className,
-  sideOffset = 0,
-  children,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
-  return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        className={cn(
-          "bg-foreground text-background animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
-  );
-}
-
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+export { Textarea };

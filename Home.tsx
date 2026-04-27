@@ -1,22 +1,21 @@
-import { trpc } from "@/lib/trpc";
+import * as React from "react";
 
-const PREMIUM_PLAN_IDS = ["3day", "7day", "3month", "annual"] as const;
+const MOBILE_BREAKPOINT = 768;
 
-export function useSubscription() {
-  const subQ = trpc.subscriptions.getActive.useQuery();
-  const sub = subQ.data;
-  const planType = sub?.planType ?? "free";
-  const isPremium = PREMIUM_PLAN_IDS.includes(planType as (typeof PREMIUM_PLAN_IDS)[number]);
-  const isLoading = subQ.isLoading;
+export function useIsMobile() {
+  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(
+    undefined
+  );
 
-  return {
-    sub,
-    planType,
-    isPremium,
-    isLoading,
-    /** Free tier: only 1 child profile allowed */
-    maxChildren: isPremium ? (planType === "3month" || planType === "annual" ? Infinity : 3) : 1,
-    /** Free tier: only last 24h of logs visible */
-    historyLimitMs: isPremium ? null : 24 * 60 * 60 * 1000,
-  };
+  React.useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const onChange = () => {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    };
+    mql.addEventListener("change", onChange);
+    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  return !!isMobile;
 }
